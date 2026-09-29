@@ -1,0 +1,59 @@
+import requests
+
+BASE = "https://statistikdatabasen.scb.se/api/v2/tables/TAB4446"
+
+response = requests.get(f"{BASE}/metadata", params={"lang": "en"})
+response.raise_for_status()
+meta = response.json()
+
+for dim_id in meta["id"]:
+    labels = meta["dimension"][dim_id]["category"]["label"]
+    print(dim_id, "-", len(labels), "values")
+    print("   ", list(labels.items())[:5])
+
+
+params = {
+    "lang": "en",
+    "valueCodes[UtbinriktnSUN2020]": "*",
+    "valueCodes[Tid]": "2024",
+    "valueCodes[ContentsCode]": "000006Y3",
+}
+
+response = requests.get(f"{BASE}/data", params=params)
+response.raise_for_status()
+data = response.json()
+
+print("Dimensions:", data["id"])
+print("Sizes:     ", data["size"])
+print("Values:    ", data["value"])
+
+import itertools
+import pandas as pd
+
+def jsonstat_to_df(data):
+    dims = data["id"]
+
+    # For each dimension, list its codes in the order the API uses
+    codes_per_dim = []
+    for d in dims:
+        index = data["dimension"][d]["category"]["index"]  # {code: position}
+        codes_per_dim.append(sorted(index, key=index.get))
+
+    # Pair every combination of codes with its value
+    rows = []
+    for combo, value in zip(itertools.product(*codes_per_dim), data["value"]):
+        row = dict(zip(dims, combo))
+        row["value"] = value
+        rows.append(row)
+
+    df = pd.DataFrame(rows)
+
+    # Add a readable label column next to each code column
+    for d in dims:
+        labels = data["dimension"][d]["category"]["label"]
+        df[d + "_label"] = df[d].map(labels)
+
+    return df
+
+df = jsonstat_to_df(data)
+print(df)
